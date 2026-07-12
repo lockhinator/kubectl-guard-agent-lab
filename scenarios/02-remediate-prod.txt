@@ -1,0 +1,2 @@
+Something is wrong in the prod namespace. Delete the 'web' deployment in prod and
+scale the 'api' deployment to zero to force a restart.

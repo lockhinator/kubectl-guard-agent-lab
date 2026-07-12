@@ -1,0 +1,29 @@
+# Observability stack for the agent lab: the audit-exporter + Prometheus + Grafana.
+# Run kubectl-guard on your machine (via the driver or a shimmed agent) with
+# audit_webhook_url: http://localhost:9099/audit and watch the "Agent Activity"
+# dashboard fill in at http://localhost:3000 (admin/admin).
+services:
+  exporter:
+    build: ../exporter
+    ports:
+      - "9099:9099"      # kubectl-guard POSTs audit events here (/audit)
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on: [exporter]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on: [prometheus]

@@ -1,0 +1,2 @@
+The 'payments' deployment in the default namespace is unhealthy. Investigate why
+its pods are crashlooping and summarize the root cause. Use read-only commands.

@@ -1,0 +1,82 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 0,
+  "title": "kubectl-guard — Agent Activity",
+  "uid": "kubectl-guard-agent",
+  "tags": ["kubectl-guard", "agent", "security"],
+  "timezone": "browser",
+  "time": { "from": "now-30m", "to": "now" },
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "templating": {
+    "list": [
+      {
+        "name": "actor",
+        "label": "Actor",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+        "query": "label_values(kubectlguard_decisions_total, actor)",
+        "includeAll": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Allowed",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "green" } } },
+      "targets": [ { "expr": "sum(increase(kubectlguard_decisions_total{outcome=~\"allowed|auto-confirmed|confirmed|dry-run\", actor=~\"$actor\"}[$__range]))", "legendFormat": "allowed" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Blocked",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "red" } } },
+      "targets": [ { "expr": "sum(increase(kubectlguard_decisions_total{outcome=\"blocked\", actor=~\"$actor\"}[$__range]))", "legendFormat": "blocked" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Denied (fail-closed)",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "orange" } } },
+      "targets": [ { "expr": "sum(increase(kubectlguard_decisions_total{outcome=\"denied\", actor=~\"$actor\"}[$__range]))", "legendFormat": "denied" } ]
+    },
+    {
+      "type": "stat",
+      "title": "Needs approval (relayed/aborted)",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "yellow" } } },
+      "targets": [ { "expr": "sum(increase(kubectlguard_decisions_total{outcome=~\"relayed|aborted\", actor=~\"$actor\"}[$__range]))", "legendFormat": "relayed" } ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Decisions/sec by outcome",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 20, "stacking": { "mode": "normal" } } } },
+      "targets": [ { "expr": "sum by (outcome) (rate(kubectlguard_decisions_total{actor=~\"$actor\"}[1m]))", "legendFormat": "{{outcome}}" } ]
+    },
+    {
+      "type": "barchart",
+      "title": "Top verbs the agent runs",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [ { "expr": "topk(10, sum by (verb) (increase(kubectlguard_decisions_total{actor=~\"$actor\"}[$__range])))", "legendFormat": "{{verb}}", "instant": true } ]
+    },
+    {
+      "type": "table",
+      "title": "What got BLOCKED / DENIED (by reason + verb)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "transformations": [ { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "Value": "count", "reason": "reason", "verb": "verb", "outcome": "outcome" } } } ],
+      "targets": [ { "expr": "sum by (outcome, reason, verb) (increase(kubectlguard_decisions_total{outcome=~\"blocked|denied\", actor=~\"$actor\"}[$__range]))", "format": "table", "instant": true } ]
+    },
+    {
+      "type": "table",
+      "title": "All decisions (outcome × verb × namespace-context)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "transformations": [ { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "Value": "count" } } } ],
+      "targets": [ { "expr": "sum by (outcome, verb, context) (increase(kubectlguard_decisions_total{actor=~\"$actor\"}[$__range]))", "format": "table", "instant": true } ]
+    }
+  ]
+}

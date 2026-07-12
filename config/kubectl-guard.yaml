@@ -1,0 +1,36 @@
+# Demo policy for the agent lab. The agent's kubectl (via the PATH-shadow shim) is
+# gated by these rules, and EVERY decision is POSTed to the audit-exporter, which
+# turns it into Prometheus metrics + Loki-able logs.
+#
+# The story: the agent can freely READ to investigate, but is blocked from reading
+# secrets and from mutating protected namespaces/contexts — and you can see it all.
+
+# Hard-block state-altering commands on any "prod" context.
+protected_contexts:
+  - pattern: "prod*"
+    mode: block
+
+# Block mutations in these namespaces (block = no confirmation offered).
+protected_namespaces:
+  - pattern: "prod"
+    mode: block
+  - kube-system
+
+# Block ALL secret access everywhere (reads included) — the value never leaves the
+# cluster, so it can never enter the agent's context window.
+protected_resources:
+  - secret
+
+# Gate (don't block) state-altering commands whose target KIND is a node.
+sensitive_kinds:
+  - node
+sensitive_kind_mode: confirm
+
+# Gated commands return a JSON approval request the agent can relay to a human.
+confirm_mode: agent-relay
+
+# Audit everything and ship each decision to the exporter.
+audit_mode: all
+audit_webhook_url: "http://localhost:9099/audit"
+# For a tamper-evident chain, point this at a key file (see README):
+# audit_hmac_key_file: "/etc/kubectl-guard/audit.key"

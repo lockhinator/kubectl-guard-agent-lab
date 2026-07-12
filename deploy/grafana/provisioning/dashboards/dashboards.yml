@@ -1,0 +1,6 @@
+apiVersion: 1
+providers:
+  - name: kubectl-guard
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards
