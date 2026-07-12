@@ -1,0 +1,32 @@
+kubectl-guard-holmes installed.
+
+HolmesGPT is now running with kubectl-guard PATH-shadowing its kubectl:
+  - Secret reads are BLOCKED everywhere ("do not read secrets" default).
+  - Production mutations are GATED (agent-relay) for human approval.
+  - Every decision is audited to the exporter -> Prometheus.
+
+1. Verify interception from inside the pod:
+   kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "kgh.fullname" . }} -c holmes -- \
+     env PATH=/opt/shim:$PATH kubectl-guard doctor
+
+{{- if not .Values.llm.existingSecret }}
+
+2. NOTE: llm.existingSecret is empty. Create a Secret with your LLM key and set
+   `llm.existingSecret` (and `llm.envFrom`) so HolmesGPT can call the model, e.g.:
+     kubectl -n {{ .Release.Namespace }} create secret generic holmes-llm \
+       --from-literal=OPENAI_API_KEY=sk-...
+   Then: helm upgrade ... --set llm.existingSecret=holmes-llm
+{{- end }}
+
+{{- if .Values.exporter.enabled }}
+
+3. Metrics: {{ include "kgh.exporterName" . }}.{{ .Release.Namespace }}.svc:{{ .Values.exporter.service.port }}/metrics
+   Scrape it with your Prometheus (or set exporter.serviceMonitor.enabled=true for
+   the Prometheus Operator) and import deploy/grafana/dashboards/agent-activity.json.
+{{- end }}
+
+{{- if not .Values.rbac.allowMutations }}
+
+4. RBAC is read-only (no secrets). The guard's prod-gating is defense-in-depth and
+   will not fire unless you also grant write access (rbac.allowMutations=true).
+{{- end }}

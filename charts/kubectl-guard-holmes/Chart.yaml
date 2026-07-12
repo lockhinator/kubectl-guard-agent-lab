@@ -1,0 +1,21 @@
+apiVersion: v2
+name: kubectl-guard-holmes
+description: >-
+  HolmesGPT (a Kubernetes investigation agent) wrapped by kubectl-guard: the
+  agent's kubectl is PATH-shadowed by the guard, which blocks secret reads, gates
+  production mutations for human approval, and audits every decision to a
+  Prometheus exporter. Cluster-agnostic — no cluster-specific config required.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - kubectl-guard
+  - holmesgpt
+  - ai-agents
+  - security
+  - guardrails
+  - observability
+home: https://github.com/lockhinator/kubectl-guard-agent-lab
+sources:
+  - https://github.com/lockhinator/kubectl-guard
+  - https://github.com/robusta-dev/holmesgpt

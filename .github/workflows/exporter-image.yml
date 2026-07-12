@@ -1,0 +1,46 @@
+# Build and publish the audit-exporter image to GHCR, so the Helm chart can pull
+# it. After the first run, make the package public (Packages -> audit-exporter ->
+# Package settings -> Change visibility) so any cluster can pull it.
+name: exporter-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "exporter/**"
+      - ".github/workflows/exporter-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/audit-exporter
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./exporter
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kgh.fullname" . }}
+  labels:
+    {{- include "kgh.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.holmes.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kgh.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kgh.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the pod when the policy changes.
+        checksum/policy: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.holmes.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "kgh.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Install the kubectl-guard binary + a `kubectl` shim into a shared volume.
+        # The shim goes FIRST on PATH in the HolmesGPT container, so its kubectl
+        # calls resolve to the guard, which forwards to the image's real kubectl.
+        - name: install-shim
+          image: {{ .Values.kubectlGuard.installerImage }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              VER="{{ .Values.kubectlGuard.version }}"
+              ARCH="{{ .Values.kubectlGuard.arch }}"
+              BASE="https://github.com/lockhinator/kubectl-guard/releases/download/v${VER}"
+              ASSET="kubectl-guard_${VER}_linux_${ARCH}.tar.gz"
+              apk add --no-cache curl tar >/dev/null
+              cd /tmp
+              curl -fsSL "${BASE}/${ASSET}" -o "${ASSET}"
+              curl -fsSL "${BASE}/checksums.txt" -o checksums.txt
+              grep " ${ASSET}$" checksums.txt | sha256sum -c -   # verify integrity
+              tar -xzf "${ASSET}" -C /shim kubectl-guard
+              ln -sf kubectl-guard /shim/kubectl
+              echo "installed kubectl-guard ${VER} shim to /shim"
+          volumeMounts:
+            - name: shim
+              mountPath: /shim
+      containers:
+        - name: holmes
+          image: "{{ .Values.holmes.image.repository }}{{ if .Values.holmes.image.tag }}:{{ .Values.holmes.image.tag }}{{ end }}"
+          imagePullPolicy: {{ .Values.holmes.image.pullPolicy }}
+          {{- with .Values.holmes.command }}
+          command: {{ toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.holmes.args }}
+          args: {{ toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            # Shim FIRST on PATH -> HolmesGPT's `kubectl` is the guard.
+            - name: PATH
+              value: "/opt/shim:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            - name: KUBECTL_GUARD_CONFIG
+              value: /etc/kubectl-guard/kubectl-guard.yaml
+            - name: KUBECTL_GUARD_ACTOR
+              value: {{ .Values.kubectlGuard.actor | quote }}
+            # Non-interactive: a gated command emits the agent-relay JSON and exits
+            # rather than blocking on a TTY prompt.
+            - name: KUBECTL_GUARD_NO_PROMPT
+              value: "1"
+            {{- if .Values.llm.existingSecret }}
+            {{- range .Values.llm.envFrom }}
+            - name: {{ .name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.llm.existingSecret }}
+                  key: {{ .key }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.holmes.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: shim
+              mountPath: /opt/shim
+              readOnly: true
+            - name: policy
+              mountPath: /etc/kubectl-guard
+              readOnly: true
+          {{- with .Values.holmes.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: shim
+          emptyDir: {}
+        - name: policy
+          configMap:
+            name: {{ include "kgh.fullname" . }}-policy

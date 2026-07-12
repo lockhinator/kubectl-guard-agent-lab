@@ -1,0 +1,110 @@
+# kubectl-guard-holmes — generic, cluster-agnostic defaults.
+# Nothing here is tied to any specific cluster. Override in your OWN repo/values
+# (LLM key, image tags, policy tweaks) — never commit secrets or kubeconfigs.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ---------------------------------------------------------------------------
+# HolmesGPT — the investigation agent whose kubectl is guarded.
+# ---------------------------------------------------------------------------
+holmes:
+  image:
+    repository: robusta/holmes
+    tag: ""              # "" => chart appVersion-independent; set a pinned tag in your values
+    pullPolicy: IfNotPresent
+  # The container command/args. HolmesGPT can run as a server or be invoked
+  # per-task; this depends on how you drive it, so it is left to your values.
+  # Example (server mode): command: ["holmes"]  args: ["serve"]
+  command: []
+  args: []
+  replicas: 1
+  resources:
+    requests: { cpu: "100m", memory: "256Mi" }
+    limits: { memory: "1Gi" }
+  # Extra env passed straight through (non-secret only).
+  extraEnv: []
+  podAnnotations: {}
+
+# ---------------------------------------------------------------------------
+# LLM credentials — referenced from an EXISTING Secret you create in your
+# cluster. This chart never contains a key. Leave existingSecret empty to wire
+# the key some other way (e.g. your own external-secrets).
+# ---------------------------------------------------------------------------
+llm:
+  # Name of a Secret you created, e.g. `kubectl create secret generic holmes-llm --from-literal=OPENAI_API_KEY=...`
+  existingSecret: ""
+  # The env var(s) to project from that Secret into the HolmesGPT container.
+  # Each entry: {name: ENV_VAR, key: secretKey}
+  envFrom:
+    - name: OPENAI_API_KEY
+      key: OPENAI_API_KEY
+
+# ---------------------------------------------------------------------------
+# kubectl-guard — installed as a PATH-shadow shim by an init container and
+# configured with the policy below. The real kubectl comes from the HolmesGPT
+# image; the shim forwards to it.
+# ---------------------------------------------------------------------------
+kubectlGuard:
+  version: "1.0.0"       # kubectl-guard release to install (from GitHub Releases)
+  arch: amd64            # amd64 | arm64 — match your node arch
+  installerImage: alpine:3.20
+  actor: holmesgpt       # recorded on every audit entry as the "actor"
+
+  # The policy. Default = the "do not read secrets" posture + gate prod mutations
+  # for human approval (agent-relay) + audit everything to the exporter. Fully
+  # generic; tune in your own values. audit_webhook_url is templated to the
+  # in-cluster exporter Service.
+  policy:
+    protected_resources:
+      - secret                 # block ALL secret access everywhere (reads included)
+    protected_namespaces:
+      - pattern: "prod*"
+        mode: confirm          # gate (not block) prod mutations -> relayed for approval
+      - kube-system
+    confirm_mode: agent-relay  # gated commands return a JSON approval request the agent relays
+    audit_mode: all
+    # audit_webhook_url is injected by the chart -> the exporter Service.
+
+# ---------------------------------------------------------------------------
+# audit-exporter — receives the guard's audit webhook, exposes Prometheus
+# metrics + structured logs. Image is published from this repo to GHCR.
+# ---------------------------------------------------------------------------
+exporter:
+  enabled: true
+  image:
+    repository: ghcr.io/lockhinator/kubectl-guard-agent-lab/audit-exporter
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 9099
+  resources:
+    requests: { cpu: "25m", memory: "32Mi" }
+    limits: { memory: "128Mi" }
+  service:
+    port: 9099
+  # Prometheus Operator ServiceMonitor (leave false if you use scrape annotations
+  # or a plain Prometheus).
+  serviceMonitor:
+    enabled: false
+    interval: 15s
+    labels: {}
+
+# ---------------------------------------------------------------------------
+# RBAC — a read-mostly ServiceAccount for HolmesGPT. Secrets are DELIBERATELY
+# excluded at the RBAC layer too, so "do not read secrets" holds even if the
+# shim is bypassed (defense in depth). Broaden `allowMutations` only if you want
+# the guard's prod-gating to be exercised (the agent can then attempt writes,
+# which the guard gates).
+# ---------------------------------------------------------------------------
+rbac:
+  create: true
+  # false => read-only (get/list/watch, no secrets). true => also allow
+  # create/update/patch/delete (still no secrets) so the guard is the gate.
+  allowMutations: false
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+imagePullSecrets: []

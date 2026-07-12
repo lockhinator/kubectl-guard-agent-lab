@@ -1,0 +1,80 @@
+{{- if .Values.exporter.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kgh.exporterName" . }}
+  labels:
+    {{- include "kgh.labels" . | nindent 4 }}
+    app.kubernetes.io/component: audit-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kgh.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: audit-exporter
+  template:
+    metadata:
+      labels:
+        {{- include "kgh.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: audit-exporter
+    spec:
+      containers:
+        - name: exporter
+          image: "{{ .Values.exporter.image.repository }}:{{ .Values.exporter.image.tag }}"
+          imagePullPolicy: {{ .Values.exporter.image.pullPolicy }}
+          env:
+            - name: LISTEN_ADDR
+              value: ":{{ .Values.exporter.port }}"
+          ports:
+            - name: http
+              containerPort: {{ .Values.exporter.port }}
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+          {{- with .Values.exporter.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kgh.exporterName" . }}
+  labels:
+    {{- include "kgh.labels" . | nindent 4 }}
+    app.kubernetes.io/component: audit-exporter
+spec:
+  selector:
+    {{- include "kgh.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: audit-exporter
+  ports:
+    - name: http
+      port: {{ .Values.exporter.service.port }}
+      targetPort: http
+{{- if .Values.exporter.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "kgh.exporterName" . }}
+  labels:
+    {{- include "kgh.labels" . | nindent 4 }}
+    {{- with .Values.exporter.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kgh.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: audit-exporter
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.exporter.serviceMonitor.interval }}
+{{- end }}
+{{- end }}

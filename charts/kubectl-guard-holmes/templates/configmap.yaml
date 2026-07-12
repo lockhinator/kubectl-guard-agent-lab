@@ -1,0 +1,19 @@
+{{/*
+The kubectl-guard policy. Built from .Values.kubectlGuard.policy, with
+audit_webhook_url injected to point at the in-cluster exporter Service so the
+user never has to hard-code a cluster-specific URL.
+*/}}
+{{- $policy := deepCopy .Values.kubectlGuard.policy -}}
+{{- if .Values.exporter.enabled -}}
+{{- $url := printf "http://%s.%s.svc:%d/audit" (include "kgh.exporterName" .) .Release.Namespace (int .Values.exporter.service.port) -}}
+{{- $_ := set $policy "audit_webhook_url" $url -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kgh.fullname" . }}-policy
+  labels:
+    {{- include "kgh.labels" . | nindent 4 }}
+data:
+  kubectl-guard.yaml: |
+{{ toYaml $policy | indent 4 }}

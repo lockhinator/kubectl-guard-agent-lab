@@ -69,13 +69,30 @@ The agent will try to read the secret, the guard blocks it, and it fails safe in
 
 > When the agent runs in a container, point `audit_webhook_url` at the host exporter — set it to `http://host.docker.internal:9099/audit` in the mounted config (the baked-in default is `localhost:9099` for the Part-1 local path).
 
+### Part 3 — deploy in-cluster (Helm)
+
+The `charts/kubectl-guard-holmes` chart runs HolmesGPT with the guard baked in — an
+init container installs the `kubectl` shim, the policy is a ConfigMap, and audit
+events go to an in-cluster exporter. It is **cluster-agnostic**: no kubeconfig (the
+pod uses its ServiceAccount) and no credentials in the chart (the LLM key is a Secret
+you create). Default policy: **block secrets + gate prod for approval + audit all**,
+plus read-only RBAC (no secrets) as a backstop.
+
+```bash
+kubectl create secret generic holmes-llm --from-literal=OPENAI_API_KEY=sk-...
+helm install holmes ./charts/kubectl-guard-holmes --set llm.existingSecret=holmes-llm
+```
+
+See [`charts/kubectl-guard-holmes/README.md`](charts/kubectl-guard-holmes/README.md).
+
 ## Repo layout
 
 ```
+charts/      kubectl-guard-holmes Helm chart (in-cluster, cluster-agnostic)
 exporter/    audit-webhook → Prometheus/Loki exporter (Go, unit-tested)
 config/      example kubectl-guard.yaml (the demo policy)
 driver/      run-demo.sh — prove the pipeline with scripted kubectl (no LLM)
-agent/       HolmesGPT + kubectl + kubectl-guard shim (Dockerfile)
+agent/       HolmesGPT + kubectl + kubectl-guard shim (Dockerfile, local run)
 scenarios/   natural-language tasks for the agent
 deploy/      docker-compose (exporter + Prometheus + Grafana) + provisioned dashboard
 ```
@@ -84,7 +101,11 @@ deploy/      docker-compose (exporter + Prometheus + Grafana) + provisioned dash
 
 Runnable now: the exporter (built + unit-tested), the docker-compose observability stack, the Grafana dashboard, and the scripted driver.
 
-Next: finish the HolmesGPT end-to-end run against a real cluster + LLM; add Loki + a "recent blocked commands" log panel; add in-cluster manifests (kube-prometheus-stack + the exporter + the agent as a Job) for a fully in-cluster deploy; wire `audit_hmac_key_file` to show the tamper-evident audit chain; add the agent-relay → chat approval loop.
+In-cluster deploy is available as the `charts/kubectl-guard-holmes` Helm chart (the
+exporter image publishes to GHCR from CI). Next: run HolmesGPT end-to-end against a
+real cluster + LLM; add Loki + a "recent blocked commands" log panel; wire
+`audit_hmac_key_file` for the tamper-evident audit chain; add the agent-relay → chat
+approval loop.
 
 ## Honest limitations
 
